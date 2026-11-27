@@ -1,0 +1,50 @@
+name: Build llama.cpp for SM8635
+
+on:
+  push:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-snapdragon:
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/snapdragon-toolchain/arm64-android:v0.8
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+
+      - name: Configure CMake (Hexagon + OpenCL)
+        run: |
+          cp docs/backend/snapdragon/CMakeUserPresets.json .
+          cmake --preset arm64-android-snapdragon-release -B build-snapdragon
+
+      - name: Build llama.cpp
+        id: build
+        run: cmake --build build-snapdragon --parallel $(nproc)
+
+      - name: Package binaries and libs
+        run: |
+          cmake --install build-snapdragon --config Release --prefix pkg-android/llama.cpp
+          tar -czf llama.cpp-sm8635-android.tar.gz -C pkg-android llama.cpp
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-cpp-sm8635
+          path: llama.cpp-sm8635-android.tar.gz
+          retention-days: 14
