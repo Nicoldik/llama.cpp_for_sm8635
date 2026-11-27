@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           lfs: false
@@ -43,7 +43,7 @@ jobs:
           tar -czf llama.cpp-sm8635-android.tar.gz -C pkg-android llama.cpp
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: llama-cpp-sm8635
           path: llama.cpp-sm8635-android.tar.gz
