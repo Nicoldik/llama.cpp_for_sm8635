@@ -7,7 +7,7 @@
 
 ## Что исправлено (коммит d6a0dcd90)
 
-На v73 часть HTP-путей выдаёт NaN/inf и мусор. Патч в `ggml/src/ggml-hexagon/ggml-hexagon.cpp`:
+На v73 ломаются две группы операций. Патч в `ggml/src/ggml-hexagon/ggml-hexagon.cpp`:
 
 1. Дефолты выключены (env-переменные всё равно переопределяют):
    - `opt_nhmx = 0` - HMX выключен, MUL_MAT/MUL_MAT_ID идут через HVX
@@ -19,11 +19,16 @@
 2. В `supports_op` на CPU уходят операции, которые фейлят `test-backend-ops`
    даже при выключенных env: `ADD`, `SUB`, `DIV`, `SCALE`, `POOL_2D`, unary `CEIL`.
 
+Причины фейлов разные:
+- `MUL_MAT`/`MUL_MAT_ID` при `n >= 5` - включается HMX, выдаёт `ERR = inf`.
+  Решено дефолтом `nhmx = 0` (уходят на HVX).
+- `ADD`/`SUB`/`DIV`/`SCALE` - фейл по точности на тестах с `f16`
+  (NMSE ~1e-7..3e-7 при пороге 1e-7, шум округления, не inf и не мусор).
+  Реджект в `supports_op` жёсткий, без разделения по типам.
+- `POOL_2D`/`CEIL` - фейлят, в LLM-инференсе не используются.
+
 На HTP0 остаются рабочие операции: `MUL_MAT`/`MUL_MAT_ID` (HVX), `RMS_NORM`,
 `ROPE`, `SOFT_MAX`, `MUL`, `SWIGLU`, `CPY`, `CONV_2D`, `CONV_3D` и др.
-
-До патча `test-backend-ops -b HTP0` падал с `ERR = inf` на 17 операциях
-(строго при n >= 5 для MUL_MAT - там включается HMX).
 
 ## Сборка
 
