@@ -1,103 +1,144 @@
-# llama.cpp
+# llama.cpp fork для SM8635 (Snapdragon 8s Gen 3, Hexagon v73)
 
-![llama.cpp](https://raw.githubusercontent.com/ggml-org/llama-brand/refs/heads/master/logo/svg/cover/llama-cpp/cover-llama-cpp-dark.svg)
+Форк заточен только под SM8635 (Hexagon Arch v73, 4 MB VTCM, 4 HVX, 1 HMX).
+Совместимость с v75+ не сохраняется.
 
-<div align="center">
+Тестировалось на POCO F6 (Snapdragon 8s Gen 3).
 
-<b>LLM inference in C/C++</b>
+## Что исправлено (коммит d6a0dcd90)
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Release](https://img.shields.io/github/v/release/ggml-org/llama.cpp?color=brightgreen)](https://github.com/ggml-org/llama.cpp/releases?q=tag:v1)
-[![Nightly](https://img.shields.io/github/v/release/ggml-org/llama.cpp?label=nightly&filter=b*&color=orange)](https://github.com/ggml-org/llama.cpp/releases?q=b)
-[![Server](https://img.shields.io/github/actions/workflow/status/ggml-org/llama.cpp/server.yml?label=Server)](https://github.com/ggml-org/llama.cpp/actions/workflows/server.yml)
-[![Docker](https://img.shields.io/github/actions/workflow/status/ggml-org/llama.cpp/docker.yml?label=Docker)](https://github.com/ggml-org/llama.cpp/actions/workflows/docker.yml)
-[![Winget](https://img.shields.io/github/actions/workflow/status/ggml-org/llama.cpp/winget.yml?label=Winget)](https://github.com/ggml-org/llama.cpp/actions/workflows/winget.yml)
+На v73 часть HTP-путей выдаёт NaN/inf и мусор. Патч в `ggml/src/ggml-hexagon/ggml-hexagon.cpp`:
 
-[v1.0.0](https://huggingface.co/blog/ggml-org/llama-cpp-v1) / [ggml](https://github.com/ggml-org/ggml) / [ops](https://github.com/ggml-org/llama.cpp/blob/master/docs/ops.md) / [maintainer PRs](https://github.com/ggml-org/llama.cpp/pulls?q=is%3Apr%20is%3Aopen%20draft%3AFalse%20(author%3Asanmai%20OR%20author%3Argerganov%20OR%20author%3AKitaitiMakoto%20OR%20author%3Adanbev%20OR%20author%3Aaldehir%20OR%20author%3Amax-krasnyansky%20OR%20author%3ACISC%20OR%20author%3Aggerganov%20OR%20author%3Aam17an%20OR%20author%3Ajhen0409%20OR%20author%3Abartowski1182%20OR%20author%3Anikwen%20OR%20author%3Ahipudding%20OR%20author%3Aravi9%20OR%20author%3AServeurpersoCom%20OR%20author%3Athelittlefireman%20OR%20author%3Apwilkin%20OR%20author%3Areeselevine%20OR%20author%3Angxson%20OR%20author%3Ajeffbolznv%20OR%20author%3Amarty1885%20OR%20author%3A0cc4m%20OR%20author%3ATitaniumtown%20OR%20author%3Aangt%20OR%20author%3AIMbackK%20OR%20author%3Aarthw%20OR%20author%3AJohannesGaessler%20OR%20author%3AORippler%20OR%20author%3Aruixiang63%20OR%20author%3Axctan%20OR%20author%3AmasterFoad%20OR%20author%3Aallozaur%20OR%20author%3AAndreas-Krebbel%20OR%20author%3Ayomaytk%20OR%20author%3Aaendk%20OR%20author%3Awine99%20OR%20author%3Agaugarg-nv%20OR%20author%3Ataronaeo%20OR%20author%3Aforforever73%20OR%20author%3Achaxu01%20OR%20author%3Alhez%20OR%20author%3AAlekseiNikiforovIBM%20OR%20author%3Anetrunnereve%20OR%20author%3Afairydreaming%20OR%20author%3Aynankani)%20sort%3Aupdated-desc) / [dev stats](https://github.com/ggml-org/llama.cpp-dev) / [lib llama API](https://github.com/ggml-org/llama.cpp/issues/9289) / [llama-server REST API](https://github.com/ggml-org/llama.cpp/issues/9291)
+1. Дефолты выключены (env-переменные всё равно переопределяют):
+   - `opt_nhmx = 0` - HMX выключен, MUL_MAT/MUL_MAT_ID идут через HVX
+   - `opt_opfusion = 0` - слияние операций выключено
+   - `opt_fa_select = 0` - FLASH_ATTN_EXT на CPU
+   - `opt_ssm_select = 0` - SSM_SCAN на CPU
+   - `opt_gdn_select = 0` - GATED_DELTA_NET на CPU
+   - `opt_li_select = 0` - LIGHTNING_INDEXER на CPU
+2. В `supports_op` на CPU уходят операции, которые фейлят `test-backend-ops`
+   даже при выключенных env: `ADD`, `SUB`, `DIV`, `SCALE`, `POOL_2D`, unary `CEIL`.
 
-</div>
+На HTP0 остаются рабочие операции: `MUL_MAT`/`MUL_MAT_ID` (HVX), `RMS_NORM`,
+`ROPE`, `SOFT_MAX`, `MUL`, `SWIGLU`, `CPY`, `CONV_2D`, `CONV_3D` и др.
 
-## Description
+До патча `test-backend-ops -b HTP0` падал с `ERR = inf` на 17 операциях
+(строго при n >= 5 для MUL_MAT - там включается HMX).
 
-The main goal of `llama.cpp` is to enable LLM (and MLLM) inference with minimal setup and state-of-the-art performance on a wide range of hardware - locally and in the cloud.
+## Сборка
 
-The `llama.cpp` project is built on top of the [ggml](https://github.com/ggml-org/ggml) library.
+Сборка идёт через GitHub Actions, workflow `Build llama.cpp for SM8635`
+(`.github/workflows/main.yml`), запускается на каждый push в master/main.
 
-## Quick start
-
-A few options to get `llama.cpp` installed on your machine:
-
-```bash
-# curl
-curl -LsSf https://llama.app/install.sh | sh
-
-# powershell
-irm https://llama.app/install.ps1 | iex
-```
-
-- Visit https://llama.app and follow the instructions
-- Run with Docker - see our [Docker documentation](docs/docker.md)
-- Download pre-built binaries from the [releases page](https://github.com/ggml-org/llama.cpp/releases)
-- Build from source by cloning this repository - check out [our build guide](docs/build.md)
-
-Once installed:
+Локально (нужен Docker):
 
 ```sh
-# Download and run a model directly from Hugging Face
-llama cli -hf ggml-org/Qwen3.5-0.8B-GGUF
-
-# Launch OpenAI-compatible API server
-llama serve -hf ggml-org/Qwen3.5-0.8B-GGUF
+./scripts/snapdragon/build.py --target adb --push
 ```
 
-<table align="center">
-    <tr>
-        <td align="center" width=50%>
-            <img width="1310" height="888" alt="VLM session with `llama cli`" src="https://github.com/user-attachments/assets/88726b48-1713-48aa-a525-95a02e78afc4" />
-            <i>VLM session with <b>llama cli</b></i>
-        </td>
-        <td align="center">
-            <img width="1392" height="958" alt="Llama Chat, the built-in chat app, against `llama serve` running Qwen 3.6" src="https://github.com/user-attachments/assets/b402f972-2e32-4def-8771-8d849f08cf2e" />
-            <i>Llama Chat, the built-in chat app, against <b>llama serve</b></i>
-        </td>
-    </tr>
-<table>
+Или вручную в контейнере:
 
-## Documentation
+```sh
+docker run -it --rm -u $(id -u):$(id -g) --volume $(pwd):/workspace \
+  --platform linux/amd64 ghcr.io/snapdragon-toolchain/arm64-android:v0.8
 
-#### Tools
+# внутри контейнера
+cp docs/backend/snapdragon/CMakeUserPresets.json .
+cmake --preset arm64-android-snapdragon-release -B build-snapdragon
+cmake --build build-snapdragon --parallel $(nproc)
+cmake --install build-snapdragon --config Release --prefix pkg-android/llama.cpp
+```
 
-- [cli](tools/cli/README.md)
-- [completion](tools/completion/README.md)
-- [server](tools/server/README.md)
-- [Text-to-speech (TTS) models](docs/multimodal/tts.md)
-- [GBNF grammars](grammars/README.md)
+## Установка на устройство (Termux)
 
-#### Development
+Скачай артефакт `llama-cpp-sm8635` из последнего запуска workflow,
+затем на устройстве:
 
-- [How to build](docs/build.md)
-- [Running on Docker](docs/docker.md)
-- [Build on Android](docs/android.md)
-- [Multi-GPU usage](docs/multi-gpu.md)
-- [Performance troubleshooting](docs/development/token_generation_performance_tips.md)
-- [GGML tips & tricks](https://github.com/ggml-org/llama.cpp/wiki/GGML-Tips-&-Tricks)
-- [XCFramework](docs/xcframework.md)
-- [Completions](docs/completions.md)
-- [Models](docs/models.md)
-- [Release process](docs/release.md)
+```sh
+tar -xzf llama.cpp-sm8635-android.tar.gz -C ~
+# получится ~/llama.cpp/{bin,lib,include,...}
+```
 
-## Contributing
+Запускай бинарники с `LD_LIBRARY_PATH`:
 
-- Contributors can open PRs
-- Collaborators will be invited based on contributions
-- Maintainers can push to branches in the `llama.cpp` repo and merge PRs into the `master` branch
-- Any help with managing issues, PRs and projects is very appreciated!
-- Read the [CONTRIBUTING.md](CONTRIBUTING.md) for more information
+```sh
+export LD_LIBRARY_PATH=~/llama.cpp/lib
+```
 
-## Acknowledgements
+## Тестирование
 
-- [yhirose/cpp-httplib](https://github.com/yhirose/cpp-httplib) - Single-header HTTP server, used by `llama-server` - MIT license
-- [nothings/stb](https://github.com/nothings/stb) - Single-header image format decoder, used by multimodal subsystem - Public domain
-- [nlohmann/json](https://github.com/nlohmann/json) - Single-header JSON library, used by various tools/examples - MIT License
-- [mackron/miniaudio](https://github.com/mackron/miniaudio) - Single-header audio format decoder, used by multimodal subsystem - Public domain
-- [sheredom/subprocess.h](https://github.com/sheredom/subprocess.h) - Single-header process launching solution for C and C++ - Public domain
+Проверка бэкенда (ожидается: ни одного `FAIL`):
+
+```sh
+~/llama.cpp/bin/test-backend-ops test -b HTP0
+```
+
+Если хочешь увидеть только упавшие операции:
+
+```sh
+~/llama.cpp/bin/test-backend-ops test -b HTP0 2>&1 | grep FAIL
+```
+
+## Запуск модели
+
+```sh
+~/llama.cpp/bin/llama-server \
+  -m ~/Qwen3-4B-IQ4_NL.gguf \
+  -dev HTP0 -ngl 99 --no-host \
+  -c 4096 --host 0.0.0.0 --port 8080
+```
+
+Проверка: текст должен быть связным, без мусора, ни одной env-переменной
+задавать не нужно. В логе загрузки ищи `hmx 0` - это подтверждение,
+что HMX выключен:
+
+```
+ggml-hex: HTP0 hwinfo: threads 6, hvx 4, hmx 0, vtcm 4 MB
+```
+
+Если в логе `hmx 1` - где-то задан `GGML_HEXAGON_NHMX=1`.
+
+## Env-переменные (все опциональны)
+
+Для отладки и временного возврата старого поведения:
+
+| Переменная | Дефолт после патча | Что делает |
+|---|---|---|
+| `GGML_HEXAGON_NHMX` | 0 | 1 = включить HMX (на v73 даёт inf) |
+| `GGML_HEXAGON_OPFUSION` | 0 | 1 = включить слияние операций |
+| `GGML_HEXAGON_FA_SELECT` | 0 | 2 = HMX->HVX->CPU, 1 = HVX->CPU, 0 = CPU |
+| `GGML_HEXAGON_SSM_SELECT` | 0 | 2 = HMX->HVX, 1 = HVX, 0 = CPU |
+| `GGML_HEXAGON_GDN_SELECT` | 0 | 2 = HMX->HVX, 1 = HVX, 0 = CPU |
+| `GGML_HEXAGON_LI_SELECT` | 0 | 2 = HMX->HVX, 1 = HVX, 0 = CPU |
+| `GGML_HEXAGON_MM_SELECT` | 2 | 2 = HMX->HVX->CPU, 1 = HVX->CPU, 0 = CPU |
+| `GGML_HEXAGON_OPFILTER` | - | regex операций, которые НЕ брать на HTP |
+| `GGML_HEXAGON_VERBOSE` | 0 | verbosity |
+| `GGML_HEXAGON_POWER_MODE` | burst | питание DCVS |
+
+Пример - принудительно включить всё старое поведение:
+
+```sh
+GGML_HEXAGON_NHMX=1 GGML_HEXAGON_OPFUSION=1 \
+GGML_HEXAGON_FA_SELECT=2 GGML_HEXAGON_SSM_SELECT=2 \
+GGML_HEXAGON_GDN_SELECT=2 GGML_HEXAGON_LI_SELECT=2 \
+~/llama.cpp/bin/llama-server -m model.gguf -dev HTP0 -ngl 99
+```
+
+Реджект `ADD`/`SUB`/`DIV`/`SCALE`/`POOL_2D`/`CEIL` в `supports_op` жёсткий,
+env-переменной нет - эти операции всегда идут на CPU.
+
+## Диагностика проблем
+
+1. NaN/inf в выводе -> проверь `hmx 0` в логе, проверь что не заданы
+   `GGML_HEXAGON_*=1`.
+2. `test-backend-ops` падает -> скинь вывод, сравни со списком операций
+   из "Что исправлено". Новые фейлы - регрессия.
+3. Медленно -> смотри, не ушли ли тяжёлые операции на CPU без нужды
+   (`GGML_HEXAGON_VERBOSE=1` покажет, что именно на чём считается).
+
+## Полезные документы в апстриме
+
+- `docs/backend/snapdragon/README.md` - сборка для Snapdragon
+- `docs/backend/snapdragon/developer.md` - устройство Hexagon-бэкенда
+- `docs/build.md` - общие инструкции сборки
+- `AGENTS.md` - правила вклада в апстрим (для этого форка в основном неактуальны)
