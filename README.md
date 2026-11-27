@@ -83,7 +83,7 @@ export LD_LIBRARY_PATH=~/llama.cpp/lib
 
 ```sh
 ~/llama.cpp/bin/llama-server \
-  -m ~/Qwen3-4B-IQ4_NL.gguf \
+  -m ~/model.gguf \
   -dev HTP0 -ngl 99 --no-host \
   -c 4096 --host 0.0.0.0 --port 8080
 ```
