@@ -84,7 +84,7 @@ static ggml_hexagon_device_config opt_device_configs[GGML_HEXAGON_MAX_SESSIONS];
 int    opt_arch       = 0; // autodetect
 size_t opt_ndev       = 1;
 size_t opt_nhvx       = 0; // use all
-int    opt_nhmx       = 1; // when set, enable HMX; when 0, use HVX only
+int    opt_nhmx       = 0; // when set, enable HMX; when 0, use HVX only (HMX gives inf on v73/SM8635)
 size_t opt_vtcm_size  = 0; // VTCM size override in bytes; 0 = auto-detect
 size_t opt_vmem       = HTP_OP_MAX_VMEM_DEFAULT;  // max available va space for buffer mappings
 int    opt_etm        = 0;
@@ -132,12 +132,14 @@ size_t opt_mbuf_dyn    = 512ul * 1024 * 1024;      // max dynamic (compute) buff
 size_t opt_mbuf_static = 1ul * 1024 * 1024 * 1024; // max static (weight/KV) buffer size
 size_t opt_mbuf_total  = 0;                        // total buffer space limit (0 = unconstrained)
 
+// defaults below are 0: FA/LI/GDN/SSM HTP paths give inf/garbage on v73 (SM8635), run them on CPU
+// override with GGML_HEXAGON_FA_SELECT / _LI_SELECT / _GDN_SELECT / _SSM_SELECT env vars
 int    opt_mm_select     = 2; // 2 = HMX -> HVX -> CPU, 1 = HVX -> CPU, 0 = CPU (unsupported)
-int    opt_fa_select     = 2; // 2 = HMX -> HVX -> CPU, 1 = HVX -> CPU, 0 = CPU (unsupported)
+int    opt_fa_select     = 0; // 2 = HMX -> HVX -> CPU, 1 = HVX -> CPU, 0 = CPU (unsupported)
 int    opt_fa_split      = 1; // 1 = head-split + team-split when n_kv_heads < N_cores (default), 0 = off
-int    opt_li_select     = 2; // 2 = HMX -> HVX, 1 = HVX, 0 = CPU (unsupported)
-int    opt_gdn_select    = 2; // 2 = HMX -> HVX, 1 = HVX, 0 = CPU (unsupported)
-int    opt_ssm_select    = 2; // 2 = HMX -> HVX, 1 = HVX, 0 = CPU (unsupported)
+int    opt_li_select     = 0; // 2 = HMX -> HVX, 1 = HVX, 0 = CPU (unsupported)
+int    opt_gdn_select    = 0; // 2 = HMX -> HVX, 1 = HVX, 0 = CPU (unsupported)
+int    opt_ssm_select    = 0; // 2 = HMX -> HVX, 1 = HVX, 0 = CPU (unsupported)
 int    opt_ar_select     = 2; // 2 = fused ALLREDUCE+ADD (default), 1 = unfused ALLREDUCE, 0 = fallback to CPY+FENCE
 int    opt_ar_scatter    = 1; // 1 = reduce-scatter the fused ALLREDUCE+ADD (default), 0 = full reduction
 
@@ -150,7 +152,7 @@ int    opt_opbatch   = 2048; // max number of ops in a batch
 int    opt_opqueue   = 8;    // max number of pending batches
 int    opt_optrace   = 0;    // trace buffer size per thread (0 means default)
 int    opt_oppoll    = 0;    // polling for batch completions
-int    opt_opfusion  = 1;    // enable/disable op fusion
+int    opt_opfusion  = 0;    // enable/disable op fusion (off: fusion breaks some ops on v73/SM8635)
 int    opt_rt_repack = 1;    // runtime repacking: 0 = disabled, 1 = all tileable weights (default)
 
 static std::regex* opt_opfilter = NULL; // regex of ops to not claim
@@ -3122,6 +3124,23 @@ static ggml_backend_buffer_type_t ggml_backend_hexagon_device_get_host_buffer_ty
 static bool ggml_backend_hexagon_device_supports_op(ggml_backend_dev_t dev, const struct ggml_tensor * op) {
     auto dev_ctx = static_cast<ggml_backend_hexagon_device_context *>(dev->context);
     auto sess    = dev_ctx->session();
+
+    // these ops fail test-backend-ops on v73 (SM8635) even with nhmx/opfusion off, run them on CPU
+    switch (op->op) {
+        case GGML_OP_ADD:
+        case GGML_OP_SUB:
+        case GGML_OP_DIV:
+        case GGML_OP_SCALE:
+        case GGML_OP_POOL_2D:
+            return false;
+        case GGML_OP_UNARY:
+            if (ggml_get_unary_op(op) == GGML_UNARY_OP_CEIL) {
+                return false;
+            }
+            break;
+        default:
+            break;
+    }
 
     // reject ops that match the filter
     if (opt_opfilter && std::regex_match(ggml_op_desc(op), *opt_opfilter)) {
